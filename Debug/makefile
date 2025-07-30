@@ -1,6 +1,6 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (12.3.rel1)
+# Toolchain: GNU Tools for STM32 (13.3.rel1)
 ################################################################################
 
 -include ../makefile.init
@@ -60,8 +60,8 @@ all: main-build
 main-build: power_board.elf secondary-outputs
 
 # Tool invocations
-power_board.elf power_board.map: $(OBJS) $(USER_OBJS) /home/pj/STM32CubeIDE/workspace_1.17.0/power_board/STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "power_board.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/home/pj/STM32CubeIDE/workspace_1.17.0/power_board/STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="power_board.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+power_board.elf power_board.map: $(OBJS) $(USER_OBJS) /Users/mateuszkaminski/Downloads/piwo-borad-code-master/STM32L432KCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "power_board.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"/Users/mateuszkaminski/Downloads/piwo-borad-code-master/STM32L432KCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="power_board.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

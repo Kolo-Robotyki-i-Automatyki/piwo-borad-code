@@ -51,7 +51,7 @@
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+extern CAN_HandleTypeDef hcan1;
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -199,5 +199,8 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /* USER CODE BEGIN 1 */
-
+void CAN1_RX0_IRQHandler(void)
+{
+  HAL_CAN_IRQHandler(&hcan1);
+}
 /* USER CODE END 1 */

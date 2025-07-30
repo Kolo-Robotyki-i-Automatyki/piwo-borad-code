@@ -21,6 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stm32l4xx_hal.h"
+#include "stm32l4xx_hal_i2c.h"
 
 /* USER CODE END Includes */
 
@@ -44,7 +46,7 @@ ADC_HandleTypeDef hadc1;
 
 CAN_HandleTypeDef hcan1;
 
-SMBUS_HandleTypeDef hsmbus1;
+I2C_HandleTypeDef hi2c1;
 
 UART_HandleTypeDef huart1;
 
@@ -57,14 +59,106 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_I2C1_SMBUS_Init(void);
+static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
+
+void INA226_WriteRegister(uint8_t reg, uint16_t value);
+uint16_t INA226_ReadRegister(uint8_t reg);
+void INA226_Init(void);
+float INA226_ReadCurrent(void);
+void Send_CAN_Message(uint8_t d0, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4, uint8_t d5, uint8_t d6, uint8_t d7);
+void Power_ON();
+void Power_OFF();
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#define INA226_ADDR        	(0x40 << 1)
+#define INA226_REG_CONFIG  	0x00
+#define INA226_REG_CALIB   	0x05
+#define INA226_REG_CURRENT 	0x04
+#define DEVICE_ID			301
+
+#define R_SHUNT 			0.002f
+#define CURRENT_LSB         0.002f
+#define CALIBRATION_VALUE   ((int)(0.00512f / (CURRENT_LSB * R_SHUNT))) // best if it's an integer (without mapping)
+
+extern I2C_HandleTypeDef hi2c1;
+
+void INA226_WriteRegister(uint8_t reg, uint16_t value)
+{
+    uint8_t data[3];
+    data[0] = reg;
+    data[1] = (value >> 8) & 0xFF;
+    data[2] = value & 0xFF;
+    HAL_I2C_Master_Transmit(&hi2c1, INA226_ADDR, data, 3, HAL_MAX_DELAY);
+}
+
+uint16_t INA226_ReadRegister(uint8_t reg)
+{
+    uint8_t data[2];
+    HAL_I2C_Master_Transmit(&hi2c1, INA226_ADDR, &reg, 1, HAL_MAX_DELAY);
+    HAL_I2C_Master_Receive(&hi2c1, INA226_ADDR, data, 2, HAL_MAX_DELAY);
+    return (data[0] << 8) | data[1];
+}
+
+void INA226_Init(void)
+{
+    INA226_WriteRegister(INA226_REG_CONFIG, 0x4127);
+    INA226_WriteRegister(INA226_REG_CALIB, CALIBRATION_VALUE);
+}
+
+float INA226_ReadCurrent(void)
+{
+    uint16_t raw = INA226_ReadRegister(INA226_REG_CURRENT);
+    return raw * CURRENT_LSB;
+}
+
+void Send_CAN_Message(uint8_t d0, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4, uint8_t d5, uint8_t d6, uint8_t d7)
+{
+    CAN_TxHeaderTypeDef txHeader;
+    uint32_t txMailbox;
+
+    txHeader.StdId = 1<<10 | DEVICE_ID;            // Standard 11-bit ID
+    txHeader.RTR = CAN_RTR_DATA;       // Data frame
+    txHeader.IDE = CAN_ID_STD;         // Standard frame (not extended)
+    txHeader.DLC = 8;             // Number of data bytes (1–8)
+    txHeader.TransmitGlobalTime = DISABLE;
+    static uint8_t data[8];
+	data[0] = d0;
+	data[1] = d1;
+	data[2] = d2;
+	data[3] = d3;
+	data[4] = d4;
+	data[5] = d5;
+	data[6] = d6;
+	data[7] = d7;
+    HAL_CAN_AddTxMessage(&hcan1, &txHeader, data, &txMailbox);
+}
+
+void Power_ON()
+{
+	HAL_GPIO_WritePin(ON_5V_GPIO_Port, ON_5V_Pin, GPIO_PIN_SET);
+	HAL_Delay(500);
+	HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_SET);
+	HAL_Delay(500);
+	HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_SET);
+	// HAL_Delay(500);
+	// HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_SET);
+}
+
+void Power_OFF()
+{
+	HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_RESET);
+	// HAL_Delay(250);
+	HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_RESET);
+	// HAL_Delay(250);
+	HAL_GPIO_WritePin(ON_5V_GPIO_Port, ON_5V_Pin, GPIO_PIN_RESET);
+
+}
 
 /* USER CODE END 0 */
 
@@ -85,7 +179,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  INA226_Init();
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -99,22 +193,69 @@ int main(void)
   MX_GPIO_Init();
   MX_CAN1_Init();
   MX_ADC1_Init();
-  MX_I2C1_SMBUS_Init();
+  MX_I2C1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  HAL_GPIO_WritePin(ON_5V_GPIO_Port, ON_5V_Pin, GPIO_PIN_SET);
-  HAL_Delay(1000);
-  HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_SET);
-  HAL_Delay(1000);
-  HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_SET);
-  HAL_Delay(1000);
-  HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_SET);
+
+  // Configure CAN Filter
+  CAN_FilterTypeDef canfilter;
+  canfilter.FilterActivation = CAN_FILTER_ENABLE;
+  canfilter.FilterBank = 0;
+  canfilter.FilterFIFOAssignment = CAN_RX_FIFO0;
+  canfilter.FilterIdHigh = 0x0000; // Accept all IDs (or filter specific ones)
+  canfilter.FilterIdLow = 0x0000;
+  canfilter.FilterMaskIdHigh = 0x0000;
+  canfilter.FilterMaskIdLow = 0x0000;
+  canfilter.FilterMode = CAN_FILTERMODE_IDMASK;
+  canfilter.FilterScale = CAN_FILTERSCALE_32BIT;
+  HAL_CAN_ConfigFilter(&hcan1, &canfilter);
+
+  HAL_CAN_Start(&hcan1);
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_TX_MAILBOX_EMPTY);
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
+
+
+  Power_ON();
+
+  // float current = (float)0;
+  // float cellMeasurements[6];
+  uint32_t lastCanSendTime = 0;
+  uint8_t adcValues[6];
+
+  for(int i = 0; i < 6; i++)
+  {
+	  // cellMeasurements[i] = (float)0;
+	  adcValues[i] = 0;
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  uint16_t raw_current = INA226_ReadRegister(INA226_REG_CURRENT);
+	  for(int i = 0; i < 6; i++)
+	  {
+		  HAL_ADC_Start(&hadc1);
+		  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+		  uint8_t adcValue = (uint8_t) HAL_ADC_GetValue(&hadc1); // I've changed it to 8-bits for better CAN sending
+		  HAL_ADC_Stop(&hadc1);
+		  // float voltage = adcValue * (3.3f / 4095.0f);
+		  // cellMeasurements[i] = voltage * (2.0f / ((float)(3 * (i + 1))));
+		  adcValues[i] = adcValue;
+	  }
+
+
+	  if (HAL_GetTick() - lastCanSendTime >= 50)  // 0.05 second
+	  {
+		  lastCanSendTime = HAL_GetTick();
+		  Send_CAN_Message((uint8_t)(raw_current >> 8), (uint8_t)(raw_current & 0xFF), adcValues[0], adcValues[1], adcValues[2], adcValues[3], adcValues[4], adcValues[5]);
+	  }
+
+
+
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -194,7 +335,7 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.Resolution = ADC_RESOLUTION_8B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -246,11 +387,11 @@ static void MX_CAN1_Init(void)
 
   /* USER CODE END CAN1_Init 1 */
   hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 16;
+  hcan1.Init.Prescaler = 8;
   hcan1.Init.Mode = CAN_MODE_NORMAL;
   hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan1.Init.TimeSeg1 = CAN_BS1_13TQ;
+  hcan1.Init.TimeSeg2 = CAN_BS2_2TQ;
   hcan1.Init.TimeTriggeredMode = DISABLE;
   hcan1.Init.AutoBusOff = DISABLE;
   hcan1.Init.AutoWakeUp = DISABLE;
@@ -272,7 +413,7 @@ static void MX_CAN1_Init(void)
   * @param None
   * @retval None
   */
-static void MX_I2C1_SMBUS_Init(void)
+static void MX_I2C1_Init(void)
 {
 
   /* USER CODE BEGIN I2C1_Init 0 */
@@ -282,27 +423,30 @@ static void MX_I2C1_SMBUS_Init(void)
   /* USER CODE BEGIN I2C1_Init 1 */
 
   /* USER CODE END I2C1_Init 1 */
-  hsmbus1.Instance = I2C1;
-  hsmbus1.Init.Timing = 0x00B07CB4;
-  hsmbus1.Init.AnalogFilter = SMBUS_ANALOGFILTER_ENABLE;
-  hsmbus1.Init.OwnAddress1 = 2;
-  hsmbus1.Init.AddressingMode = SMBUS_ADDRESSINGMODE_7BIT;
-  hsmbus1.Init.DualAddressMode = SMBUS_DUALADDRESS_DISABLE;
-  hsmbus1.Init.OwnAddress2 = 0;
-  hsmbus1.Init.OwnAddress2Masks = SMBUS_OA2_NOMASK;
-  hsmbus1.Init.GeneralCallMode = SMBUS_GENERALCALL_DISABLE;
-  hsmbus1.Init.NoStretchMode = SMBUS_NOSTRETCH_DISABLE;
-  hsmbus1.Init.PacketErrorCheckMode = SMBUS_PEC_DISABLE;
-  hsmbus1.Init.PeripheralMode = SMBUS_PERIPHERAL_MODE_SMBUS_SLAVE;
-  hsmbus1.Init.SMBusTimeout = 0x00008186;
-  if (HAL_SMBUS_Init(&hsmbus1) != HAL_OK)
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x00B07CB4;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
   {
     Error_Handler();
   }
 
-  /** configuration Alert Mode
+  /** Configure Analogue filter
   */
-  if (HAL_SMBUS_EnableAlert_IT(&hsmbus1) != HAL_OK)
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
   {
     Error_Handler();
   }
@@ -355,8 +499,8 @@ static void MX_USART1_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -382,12 +526,37 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
 
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+    CAN_RxHeaderTypeDef rxHeader;
+    uint8_t rxData[8];
+
+    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rxHeader, rxData);
+
+    // Process message:
+    if (rxHeader.StdId == DEVICE_ID && rxHeader.DLC == 8)
+    {
+        uint8_t receivedValue = rxData[0];
+        if(receivedValue == 1)
+        {
+        	HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_RESET);
+        }
+        if(receivedValue == 2)
+        {
+        	HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_SET);
+        }
+        if(receivedValue == 3)
+        {
+        	Power_OFF();
+        }
+    }
+}
 /* USER CODE END 4 */
 
 /**
