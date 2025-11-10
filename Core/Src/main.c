@@ -200,7 +200,25 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  // Configure CAN Filter
+  CAN_FilterTypeDef canfilter;
+  canfilter.FilterActivation = CAN_FILTER_ENABLE;
+  canfilter.FilterBank = 0;
+  canfilter.FilterFIFOAssignment = CAN_RX_FIFO0;
+  canfilter.FilterIdHigh = 0x0000; // Accept all IDs (or filter specific ones)
+  canfilter.FilterIdLow = 0x0000;
+  canfilter.FilterMaskIdHigh = 0x0000;
+  canfilter.FilterMaskIdLow = 0x0000;
+  canfilter.FilterMode = CAN_FILTERMODE_IDMASK;
+  canfilter.FilterScale = CAN_FILTERSCALE_32BIT;
+  HAL_CAN_ConfigFilter(&hcan1, &canfilter);
+
+  HAL_CAN_Start(&hcan1);
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_TX_MAILBOX_EMPTY);
+  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
+
   Power_ON();
+
   HAL_ADC_Start_DMA(&hadc1, adc_buffer, 6);
   /* USER CODE END 2 */
 
@@ -232,6 +250,10 @@ int main(void)
 			  HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_RESET);
 		  }
 	  }
+
+	  Send_CAN_Message(0, (uint8_t)(adc_buffer[0] >> 8), (uint8_t)(adc_buffer[0]), (uint8_t)(adc_buffer[1] >> 8), (uint8_t)(adc_buffer[1]), (uint8_t)(adc_buffer[2] >> 8), (uint8_t)(adc_buffer[2]), 0);
+	  Send_CAN_Message(1, (uint8_t)(adc_buffer[3] >> 8), (uint8_t)(adc_buffer[3]), (uint8_t)(adc_buffer[4] >> 8), (uint8_t)(adc_buffer[4]), (uint8_t)(adc_buffer[5] >> 8), (uint8_t)(adc_buffer[5]), 0);
+
 	  if (minVoltage > 3.7) {
 		  Power_ON();
 	  }
