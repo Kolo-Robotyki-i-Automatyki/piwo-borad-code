@@ -241,14 +241,14 @@ int main(void)
 			  minVoltage = voltage;
 		  }
 
-		  if (voltage < 3.6) {
-			HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_RESET);
-		  }
+		  // if (voltage < 3.6) {
+			// HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_RESET);
+		  // }
 
-		  if (voltage < 3.5) {
-			  HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_RESET);
-			  HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_RESET);
-		  }
+		  // if (voltage < 3.5) {
+			//   HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_RESET);
+			//   HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_RESET);
+		  // }
 	  }
 
 	  Send_CAN_Message(0, (uint8_t)(adc_buffer[0] >> 8), (uint8_t)(adc_buffer[0]), (uint8_t)(adc_buffer[1] >> 8), (uint8_t)(adc_buffer[1]), (uint8_t)(adc_buffer[2] >> 8), (uint8_t)(adc_buffer[2]), 0);
