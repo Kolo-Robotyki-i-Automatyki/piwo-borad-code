@@ -43,6 +43,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 CAN_HandleTypeDef hcan1;
 
@@ -57,6 +58,7 @@ UART_HandleTypeDef huart1;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_CAN1_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
@@ -145,8 +147,8 @@ void Power_ON()
 	HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_SET);
 	HAL_Delay(500);
 	HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_SET);
-	// HAL_Delay(500);
-	// HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_SET);
+	HAL_Delay(500);
+	HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_SET);
 }
 
 void Power_OFF()
@@ -159,7 +161,7 @@ void Power_OFF()
 	HAL_GPIO_WritePin(ON_5V_GPIO_Port, ON_5V_Pin, GPIO_PIN_RESET);
 
 }
-
+uint16_t adc_buffer[6];
 /* USER CODE END 0 */
 
 /**
@@ -179,7 +181,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  INA226_Init();
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -191,6 +193,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_CAN1_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
@@ -214,46 +217,46 @@ int main(void)
   HAL_CAN_ActivateNotification(&hcan1, CAN_IT_TX_MAILBOX_EMPTY);
   HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
 
-
   Power_ON();
 
-  // float current = (float)0;
-  // float cellMeasurements[6];
-  uint32_t lastCanSendTime = 0;
-  uint8_t adcValues[6];
-
-  for(int i = 0; i < 6; i++)
-  {
-	  // cellMeasurements[i] = (float)0;
-	  adcValues[i] = 0;
-  }
+  HAL_ADC_Start_DMA(&hadc1, adc_buffer, 6);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  uint16_t raw_current = INA226_ReadRegister(INA226_REG_CURRENT);
-	  for(int i = 0; i < 6; i++)
+	  HAL_Delay(1000);
+	  float lastVoltage = 0.0;
+	  float minVoltage = 10.0;
+	  for (int i = 0; i < 6; i++)
 	  {
-		  HAL_ADC_Start(&hadc1);
-		  HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
-		  uint8_t adcValue = (uint8_t) HAL_ADC_GetValue(&hadc1); // I've changed it to 8-bits for better CAN sending
-		  HAL_ADC_Stop(&hadc1);
-		  // float voltage = adcValue * (3.3f / 4095.0f);
-		  // cellMeasurements[i] = voltage * (2.0f / ((float)(3 * (i + 1))));
-		  adcValues[i] = adcValue;
+		  float voltage = adc_buffer[i] * (3.3f / 4095.0f);
+		  voltage *= (((float)(3 * (i + 1))) / 2.0f);
+		  float tmp = voltage;
+		  voltage -= lastVoltage;
+		  lastVoltage = tmp;
+
+		  if (minVoltage > voltage) {
+			  minVoltage = voltage;
+		  }
+
+		  // if (voltage < 3.6) {
+			// HAL_GPIO_WritePin(ON_Motor_GPIO_Port, ON_Motor_Pin, GPIO_PIN_RESET);
+		  // }
+
+		  // if (voltage < 3.5) {
+			//   HAL_GPIO_WritePin(ON_Arm_GPIO_Port, ON_Arm_Pin, GPIO_PIN_RESET);
+			//   HAL_GPIO_WritePin(ON_12V_GPIO_Port, ON_12V_Pin, GPIO_PIN_RESET);
+		  // }
 	  }
 
+	  Send_CAN_Message(0, (uint8_t)(adc_buffer[0] >> 8), (uint8_t)(adc_buffer[0]), (uint8_t)(adc_buffer[1] >> 8), (uint8_t)(adc_buffer[1]), (uint8_t)(adc_buffer[2] >> 8), (uint8_t)(adc_buffer[2]), 0);
+	  Send_CAN_Message(1, (uint8_t)(adc_buffer[3] >> 8), (uint8_t)(adc_buffer[3]), (uint8_t)(adc_buffer[4] >> 8), (uint8_t)(adc_buffer[4]), (uint8_t)(adc_buffer[5] >> 8), (uint8_t)(adc_buffer[5]), 0);
 
-	  if (HAL_GetTick() - lastCanSendTime >= 50)  // 0.05 second
-	  {
-		  lastCanSendTime = HAL_GetTick();
-		  Send_CAN_Message((uint8_t)(raw_current >> 8), (uint8_t)(raw_current & 0xFF), adcValues[0], adcValues[1], adcValues[2], adcValues[3], adcValues[4], adcValues[5]);
+	  if (minVoltage > 3.7) {
+		  Power_ON();
 	  }
-
-
-
 
 
     /* USER CODE END WHILE */
@@ -335,17 +338,17 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_8B;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.NbrOfConversion = 6;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -357,10 +360,55 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_2CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_92CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_6;
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_7;
+  sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_8;
+  sConfig.Rank = ADC_REGULAR_RANK_4;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_9;
+  sConfig.Rank = ADC_REGULAR_RANK_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_10;
+  sConfig.Rank = ADC_REGULAR_RANK_6;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -492,6 +540,22 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -573,8 +637,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
